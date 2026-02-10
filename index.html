@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OFT Invoice Maker</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet" crossorigin="anonymous">
+    
+    <!-- React & ReactDOM (UMD) -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel (to compile JSX in browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- html-to-image (for PNG generation) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js"></script>
+
+    <style>
+      body {
+        font-family: 'Montserrat', sans-serif;
+      }
+      
+      /* Print Styles for main window (Ctrl+P fallback) */
+      @media print {
+        @page {
+          size: A4;
+          margin: 12mm;
+        }
+        
+        body * {
+          visibility: hidden;
+        }
+        
+        #invoice-preview, #invoice-preview * {
+          visibility: visible;
+        }
+        
+        #invoice-preview {
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 100%;
+          margin: 0;
+          padding: 0;
+          box-shadow: none !important;
+          border-radius: 0 !important;
+          overflow: visible !important;
+        }
+        
+        .no-print {
+          display: none !important;
+        }
+      }
+      
+      /* Page Break Prevention */
+      tr, .avoid-break, .invoice-page {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "html-to-image": "https://esm.sh/html-to-image@^1.11.13"
+  }
+}
+</script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- ICONS (SVG Maps to avoid external dependencies) ---
+        const Icons = {
+            FileText: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>,
+            Clipboard: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>,
+            Plus: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>,
+            Trash2: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>,
+            CreditCard: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>,
+            Printer: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>,
+            Download: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>,
+            RefreshCw: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>,
+            Check: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+            User: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
+            Layout: (props) => <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="9" x2="9" y1="21" y2="9"/></svg>,
+        };
+
+        // --- CONSTANTS & DEFAULTS ---
+        const DEFAULT_CLIENT_NAME = "Client Name";
+        const DEFAULT_COMPANY_NAME = "Company Name";
+        const DEFAULT_PAYEE_NAME = "Jeric Turga";
+        const DEFAULT_HOURLY_RATE = 10;
+        const DEFAULT_NOTE = "Thank you for the opportunity to support Company Name.";
+
+        const DEFAULT_PAYMENT_METHOD = {
+            id: '1',
+            name: 'Wise',
+            link: 'https://wise.com/pay/me/jericcasacajot'
+        };
+
+        // --- UTILS ---
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+
+        const toMinutes = (timeStr) => {
+            if (!timeStr) return 0;
+            const s = String(timeStr).trim();
+            const parts = s.split(":").map(x => x.trim());
+            
+            if (parts.length === 2 || parts.length === 3) {
+                const h = parseInt(parts[0], 10) || 0;
+                const m = parseInt(parts[1], 10) || 0;
+                return (h * 60) + m;
+            }
+            
+            const n = Number(s);
+            if (!isNaN(n)) return Math.round(n * 60);
+            return 0;
+        };
+
+        const minutesToPretty = (totalMinutes) => {
+            const h = Math.floor(totalMinutes / 60);
+            const m = Math.round(totalMinutes % 60);
+            return `${h} hrs ${m} mins`;
+        };
+
+        const minutesToHMM = (totalMinutes) => {
+            const h = Math.floor(totalMinutes / 60);
+            const m = Math.round(totalMinutes % 60);
+            return `${h}:${m.toString().padStart(2, '0')}`;
+        };
+
+        const formatCurrency = (amount, currency) => {
+            const symbols = {
+                USD: '$',
+                EUR: '€',
+                GBP: '£',
+                PHP: '₱'
+            };
+            const symbol = symbols[currency] || '$';
+            const num = Number(amount);
+            const safeAmount = isNaN(num) ? 0 : num;
+            return `${symbol}${safeAmount.toFixed(2)}`;
+        };
+
+        const parseTimeLogs = (input) => {
+            const lines = input.split('\n');
+            const parsedItems = [];
+
+            lines.forEach((line) => {
+                const trimmed = line.trim();
+                if (!trimmed) return;
+                const cols = trimmed.split('\t');
+                
+                if (cols[0]?.toLowerCase().includes('date') || cols[0]?.toLowerCase().includes('project')) return;
+
+                if (cols.length < 6) return;
+
+                const dateStr = cols[0]?.trim() || '';
+                const project = cols[1]?.trim() || '';
+                const description = cols[2]?.trim() || '';
+                const startTime = cols[3]?.trim() || '';
+                const endTime = cols[4]?.trim() || '';
+                const totalRaw = cols[5]?.trim() || '0';
+
+                const minutes = toMinutes(totalRaw);
+
+                if (dateStr) {
+                    parsedItems.push({
+                        id: generateId(),
+                        date: dateStr,
+                        project,
+                        description,
+                        startTime,
+                        endTime,
+                        minutes,
+                    });
+                }
+            });
+
+            return parsedItems;
+        };
+
+        const getBillingPeriod = (items) => {
+            if (items.length === 0) return { start: '', end: '' };
+
+            let minDate = new Date(8640000000000000);
+            let maxDate = new Date(-8640000000000000);
+            let found = false;
+
+            items.forEach(item => {
+                const d = new Date(item.date);
+                if (!isNaN(d.getTime())) {
+                    found = true;
+                    if (d < minDate) minDate = d;
+                    if (d > maxDate) maxDate = d;
+                }
+            });
+
+            if (!found) return { start: '', end: '' };
+
+            const formatDate = (d) => d.toISOString().split('T')[0];
+
+            return {
+                start: formatDate(minDate),
+                end: formatDate(maxDate)
+            };
+        };
+
+        const getDefaultInvoiceNumber = () => {
+            const now = new Date();
+            const yyyy = now.getFullYear();
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            return `INV-${yyyy}-${mm}-001`;
+        };
+
+        const getToday = () => {
+            return new Date().toISOString().split('T')[0];
+        };
+
+        const downloadPNG = async (elementId, filename) => {
+            const node = document.getElementById(elementId);
+            if (!node) return;
+
+            try {
+                // Check if library loaded
+                if(!window.htmlToImage) {
+                    alert("Image generation library not loaded yet.");
+                    return;
+                }
+
+                const width = node.scrollWidth;
+                const height = node.scrollHeight;
+
+                const dataUrl = await window.htmlToImage.toPng(node, { 
+                    quality: 1.0, 
+                    backgroundColor: 'white',
+                    cacheBust: true,
+                    pixelRatio: 2, 
+                    width: width,
+                    height: height,
+                    style: {
+                        overflow: 'visible',
+                        maxHeight: 'none',
+                        height: 'auto',
+                        transform: 'none',
+                        boxShadow: 'none', 
+                        margin: '0'
+                    }
+                });
+                
+                const link = document.createElement('a');
+                link.download = filename;
+                link.href = dataUrl;
+                link.click();
+            } catch (err) {
+                console.error('Failed to generate PNG', err);
+                alert("Could not generate PNG. Please check console for errors.");
+            }
+        };
+
+        const downloadPDF = async (elementId, filename) => {
+            const element = document.getElementById(elementId);
+            if (!element) {
+                alert("Invoice preview content not found");
+                return;
+            }
+
+            const htmlContent = element.outerHTML;
+            const printWindow = window.open('', '_blank', 'width=1000,height=1200');
+            
+            if (!printWindow) {
+                alert("Please allow popups to use the Print/PDF feature.");
+                return;
+            }
+
+            const doc = printWindow.document;
+            doc.open();
+            doc.write(`
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>${filename}</title>
+                <script src="https://cdn.tailwindcss.com"><\/script>
+                <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+                <style>
+                    body {
+                    margin: 0;
+                    padding: 0;
+                    background-color: white;
+                    font-family: 'Montserrat', sans-serif;
+                    }
+                    * {
+                    -webkit-print-color-adjust: exact !important;
+                    print-color-adjust: exact !important;
+                    }
+                    #invoice-preview {
+                    margin: 0 auto !important;
+                    box-shadow: none !important;
+                    border-radius: 0 !important;
+                    min-height: auto !important;
+                    width: 100% !important;
+                    max-width: 800px !important; 
+                    overflow: visible !important;
+                    }
+                    @media print {
+                    @page {
+                        size: A4;
+                        margin: 10mm;
+                    }
+                    body {
+                        zoom: 0.9;
+                    }
+                    tr, .avoid-break {
+                        break-inside: avoid;
+                        page-break-inside: avoid;
+                    }
+                    }
+                </style>
+                </head>
+                <body>
+                <div style="display: flex; justify-content: center; padding: 20px;">
+                    ${htmlContent}
+                </div>
+                <script>
+                    window.onload = function() {
+                    const imgs = document.getElementsByTagName('img');
+                    let pending = imgs.length;
+                    const done = () => {
+                        pending--;
+                        if (pending <= 0) doPrint();
+                    };
+                    if (pending === 0) doPrint();
+                    else {
+                        for (let img of imgs) {
+                        if (img.complete) done();
+                        else { img.onload = done; img.onerror = done; }
+                        }
+                    }
+                    function doPrint() {
+                        setTimeout(() => {
+                        window.focus();
+                        window.print();
+                        }, 800);
+                    }
+                    };
+                <\/script>
+                </body>
+                </html>
+            `);
+            doc.close();
+        };
+
+        // --- COMPONENTS ---
+
+        const InvoicePreview = ({ items, invoiceState }) => {
+            const totalMinutes = items.reduce((sum, item) => sum + item.minutes, 0);
+            const totalHoursDecimal = totalMinutes / 60;
+            
+            const isHourly = invoiceState.invoiceType === 'hourly';
+            const hourlyRate = Number(invoiceState.hourlyRate) || 0;
+            const flatAmount = Number(invoiceState.flatAmount) || 0;
+            
+            const subtotal = isHourly 
+                ? totalHoursDecimal * hourlyRate
+                : flatAmount;
+            
+            const formatDateDisplay = (dateStr) => {
+                if (!dateStr) return '';
+                return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            };
+
+            const qrLink = invoiceState.paymentMethods.length > 0 
+                ? encodeURIComponent(invoiceState.paymentMethods[0].link) 
+                : '';
+            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${qrLink}`;
+
+            return (
+                <div id="invoice-preview" className="invoice-page w-full max-w-4xl mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden print:shadow-none print:rounded-none relative min-h-[1000px] flex flex-col">
+                {/* Yellow Badge */}
+                <div className="absolute top-4 left-4 bg-amber-400 text-amber-900 px-4 py-1.5 rounded-full text-sm font-semibold uppercase tracking-wide shadow-md print:bg-amber-400 print:text-amber-900 print:block">
+                    {isHourly ? 'Project Invoice' : 'Flat Rate Invoice'}
+                </div>
+
+                <div className="flex-grow">
+                    {/* Header Section */}
+                    <div className="pt-16 pb-6 px-8 border-b border-slate-200 flex justify-between items-start">
+                    <div>
+                        <h1 className="text-3xl font-bold text-slate-800">INVOICE</h1>
+                        <p className="text-slate-500 mt-1">#{invoiceState.invoiceNumber}</p>
+                    </div>
+                    <div className="text-right">
+                        <p className="text-sm text-slate-500">Invoice Date</p>
+                        <p className="font-semibold text-slate-800">{formatDateDisplay(invoiceState.invoiceDate)}</p>
+                        <p className="text-sm text-slate-500 mt-2">Billing Period</p>
+                        <p className="font-semibold text-slate-800">
+                        {invoiceState.billingStart ? formatDateDisplay(invoiceState.billingStart) : '-'} - {invoiceState.billingEnd ? formatDateDisplay(invoiceState.billingEnd) : '-'}
+                        </p>
+                    </div>
+                    </div>
+
+                    {/* Bill To / From */}
+                    <div className="px-8 py-6 bg-slate-50 grid grid-cols-2 gap-8 print:bg-slate-50">
+                    <div>
+                        <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">Bill To</p>
+                        <p className="font-semibold text-slate-800 text-xl">{invoiceState.clientName}</p>
+                        <p className="text-slate-600 text-lg">{invoiceState.companyName}</p>
+                    </div>
+                    <div>
+                        <p className="text-xs uppercase tracking-wider text-slate-500 mb-2">From</p>
+                        <p className="font-semibold text-slate-800 text-xl">{invoiceState.payeeName}</p>
+                        <p className="text-slate-600 text-lg">Freelance Services</p>
+                    </div>
+                    </div>
+
+                    {/* Line Items Table */}
+                    <div className="px-8 py-6">
+                    <table className="w-full">
+                        <thead>
+                        <tr className="bg-black text-white print:bg-black print:text-white">
+                            <th className="px-4 py-3 text-left text-sm font-semibold rounded-tl-lg print:rounded-none">Date</th>
+                            <th className="px-4 py-3 text-left text-sm font-semibold">Task / Description</th>
+                            {invoiceState.showTimeColumns && (
+                            <>
+                                <th className="px-4 py-3 text-center text-sm font-semibold">Time</th>
+                                <th className="px-4 py-3 text-right text-sm font-semibold rounded-tr-lg print:rounded-none">Hours</th>
+                            </>
+                            )}
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {items.length === 0 ? (
+                            <tr>
+                            <td colSpan={invoiceState.showTimeColumns ? 4 : 2} className="text-center py-6 text-slate-400 italic">
+                                No items found. Use the editor to add rows.
+                            </td>
+                            </tr>
+                        ) : (
+                            items.map((item, index) => {
+                            const itemHours = item.minutes / 60;
+                            return (
+                                <tr key={item.id} className={`${index % 2 === 0 ? 'bg-white' : 'bg-slate-50 print:bg-slate-50'}`}>
+                                <td className="px-4 py-3 text-sm text-slate-600 align-top w-32">
+                                    {formatDateDisplay(item.date)}
+                                </td>
+                                <td className="px-4 py-3 align-top">
+                                    <p className="font-medium text-slate-800 text-sm">{item.project}</p>
+                                    <p className="text-slate-500 text-xs">{item.description}</p>
+                                </td>
+                                {invoiceState.showTimeColumns && (
+                                    <>
+                                    <td className="px-4 py-3 text-center text-sm text-slate-600 align-top w-32">
+                                        {item.startTime} - {item.endTime}
+                                    </td>
+                                    <td className="px-4 py-3 text-right font-medium text-slate-800 text-sm align-top w-20">
+                                        {itemHours.toFixed(2)}
+                                    </td>
+                                    </>
+                                )}
+                                </tr>
+                            );
+                            })
+                        )}
+                        </tbody>
+                    </table>
+                    </div>
+
+                    {/* Totals Section */}
+                    <div className="px-8 py-6 avoid-break">
+                    <div className="flex justify-end">
+                        <div className="w-72 bg-gray-50 rounded-xl p-4 print:bg-gray-50">
+                        {isHourly ? (
+                            <>
+                            <div className="flex justify-between py-2 border-b border-gray-200">
+                                <span className="text-gray-600 text-sm">Hourly Rate</span>
+                                <span className="font-medium text-gray-800 text-sm">{formatCurrency(hourlyRate, invoiceState.currency)}</span>
+                            </div>
+                            <div className="flex justify-between py-2 border-b border-gray-200">
+                                <span className="text-gray-600 text-sm">Total Hours</span>
+                                <span className="font-medium text-gray-800 text-sm">{totalHoursDecimal.toFixed(2)} hrs</span>
+                            </div>
+                            </>
+                        ) : (
+                            <div className="flex justify-between py-2 border-b border-gray-200">
+                            <span className="text-gray-600 text-sm">Rate Type</span>
+                            <span className="font-medium text-gray-800 text-sm">Flat Amount</span>
+                            </div>
+                        )}
+                        
+                        <div className="flex justify-between py-2 border-b border-gray-200">
+                            <span className="text-gray-600 text-sm">Subtotal</span>
+                            <span className="font-medium text-gray-800 text-sm">{formatCurrency(subtotal, invoiceState.currency)}</span>
+                        </div>
+                        <div className="flex justify-between py-3 mt-2 bg-black text-white rounded-lg px-3 print:bg-black print:text-white">
+                            <span className="font-semibold text-sm">Total Amount Due</span>
+                            <span className="font-bold text-lg">{formatCurrency(subtotal, invoiceState.currency)}</span>
+                        </div>
+                        </div>
+                    </div>
+                    </div>
+                </div>
+
+                {/* Footer / Payment Info */}
+                <div className="px-8 py-6 bg-slate-50 border-t border-slate-200 print:bg-slate-50 avoid-break">
+                    <div className="flex justify-between items-end gap-6">
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold uppercase tracking-wider text-slate-700 mb-3">Payment Information</p>
+                        
+                        {/* Account Name added here */}
+                        <div className="text-base mb-4">
+                        <p>
+                            <span className="text-slate-600 font-medium">Account Name:</span>{' '}
+                            <span className="font-bold text-slate-900">{invoiceState.payeeName}</span>
+                        </p>
+                        </div>
+
+                        <div className="space-y-4">
+                        {invoiceState.paymentMethods.map(method => (
+                            <div key={method.id} className="text-base">
+                            <p className="mb-1">
+                                <span className="text-slate-600 font-medium">Method:</span>{' '}
+                                <span className="font-bold text-slate-900">{method.name}</span>
+                            </p>
+                            <p>
+                                <span className="text-slate-600 font-medium">Link:</span>{' '}
+                                <a href={method.link} className="font-bold text-emerald-700 hover:underline break-all">
+                                {method.link}
+                                </a>
+                            </p>
+                            </div>
+                        ))}
+                        </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                        {invoiceState.paymentMethods.length > 0 ? (
+                        <div className="w-40 h-40 bg-white rounded-xl shadow-md p-2 flex items-center justify-center overflow-hidden border border-slate-200">
+                            <img 
+                            src={qrUrl} 
+                            alt="Payment QR" 
+                            className="w-full h-full object-contain"
+                            crossOrigin="anonymous" 
+                            />
+                        </div>
+                        ) : (
+                        <div className="w-40 h-40 bg-white rounded-xl shadow-md p-2 flex items-center justify-center text-xs text-gray-400">
+                            Add payment method
+                        </div>
+                        )}
+                    </div>
+                    </div>
+                </div>
+
+                {/* Footer Strip */}
+                <div className="px-8 py-4 bg-black text-center print:bg-black avoid-break">
+                    <p className="text-amber-300 text-sm font-medium whitespace-nowrap overflow-hidden text-ellipsis">
+                       {invoiceState.invoiceNote}
+                    </p>
+                </div>
+                </div>
+            );
+        };
+
+        const InvoiceEditor = ({ 
+            invoiceState, 
+            setInvoiceState, 
+            items, 
+            setItems, 
+            onParseLogs,
+            onRecomputeDates,
+            showToast
+        }) => {
+            const [logInput, setLogInput] = useState("");
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setInvoiceState(prev => ({ ...prev, [name]: value }));
+            };
+
+            const updateLineItem = (id, field, value) => {
+                setItems(prev => prev.map(item => {
+                if (item.id === id) return { ...item, [field]: value };
+                return item;
+                }));
+            };
+
+            const removeLineItem = (id) => {
+                setItems(prev => prev.filter(i => i.id !== id));
+            };
+
+            const addLineItem = () => {
+                const newItem = {
+                id: Math.random().toString(36).substr(2, 9),
+                date: new Date().toLocaleDateString(),
+                project: "Custom Task",
+                description: "Description",
+                startTime: "",
+                endTime: "",
+                minutes: 0
+                };
+                setItems([...items, newItem]);
+            };
+
+            const addPaymentMethod = () => {
+                const newId = Math.random().toString(36).substr(2, 9);
+                setInvoiceState(prev => ({
+                ...prev,
+                paymentMethods: [...prev.paymentMethods, { id: newId, name: '', link: '' }]
+                }));
+                showToast("Payment method added", "success");
+            };
+
+            const removePaymentMethod = (id) => {
+                setInvoiceState(prev => ({
+                ...prev,
+                paymentMethods: prev.paymentMethods.filter(m => m.id !== id)
+                }));
+            };
+
+            const updatePaymentMethod = (id, field, value) => {
+                setInvoiceState(prev => ({
+                ...prev,
+                paymentMethods: prev.paymentMethods.map(m => m.id === id ? { ...m, [field]: value } : m)
+                }));
+            };
+
+            const getExportFilename = (extension) => {
+                const date = invoiceState.invoiceDate || 'date';
+                const billTo = invoiceState.companyName || invoiceState.clientName || 'Client';
+                const from = invoiceState.payeeName || 'Provider';
+                
+                const sanitize = (str) => {
+                return str
+                    .replace(/[^a-zA-Z0-9\s-_]/g, '')
+                    .trim()
+                    .replace(/\s+/g, '-');
+                };
+
+                const safeBillTo = sanitize(billTo);
+                const safeFrom = sanitize(from);
+                
+                return `${date}_${safeBillTo}_${safeFrom}.${extension}`;
+            };
+
+            const totalMinutes = items.reduce((acc, curr) => acc + curr.minutes, 0);
+
+            return (
+                <div className="space-y-6">
+                
+                {/* 1. General Invoice Details */}
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                    <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                    <Icons.FileText className="w-5 h-5 text-emerald-600" /> General Details
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Invoice Number</label>
+                        <input 
+                        type="text" 
+                        name="invoiceNumber"
+                        value={invoiceState.invoiceNumber}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Invoice Date</label>
+                        <input 
+                        type="date" 
+                        name="invoiceDate"
+                        value={invoiceState.invoiceDate}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Currency</label>
+                        <select 
+                        name="currency"
+                        value={invoiceState.currency}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition"
+                        >
+                        <option value="USD">USD ($)</option>
+                        <option value="EUR">EUR (€)</option>
+                        <option value="GBP">GBP (£)</option>
+                        <option value="PHP">PHP (₱)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Billing Start</label>
+                        <input 
+                        type="date" 
+                        name="billingStart"
+                        value={invoiceState.billingStart}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Billing End</label>
+                        <input 
+                        type="date" 
+                        name="billingEnd"
+                        value={invoiceState.billingEnd}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition"
+                        />
+                    </div>
+                    <div className="flex items-end">
+                        <button 
+                        onClick={onRecomputeDates}
+                        className="w-full px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition font-medium text-sm flex items-center justify-center gap-2"
+                        >
+                        <Icons.RefreshCw size={14} /> Recompute Dates
+                        </button>
+                    </div>
+                    </div>
+                </div>
+
+                {/* 2. Client & Payee & Rate Settings */}
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                    <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                    <Icons.User className="w-5 h-5 text-blue-600" /> Client, Payee & Rate
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Bill To (Client)</h3>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Client Name</label>
+                            <input 
+                            type="text" 
+                            name="clientName"
+                            value={invoiceState.clientName}
+                            onChange={handleInputChange}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Company Name</label>
+                            <input 
+                            type="text" 
+                            name="companyName"
+                            value={invoiceState.companyName}
+                            onChange={handleInputChange}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition"
+                            />
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-3">
+                        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">From (Payee) & Rate</h3>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Payee Name</label>
+                            <input 
+                            type="text" 
+                            name="payeeName"
+                            value={invoiceState.payeeName}
+                            onChange={handleInputChange}
+                            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 transition"
+                            />
+                        </div>
+                        
+                        {/* Invoice Type Selection */}
+                        <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mt-2">
+                            <div className="flex gap-4 mb-3">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                type="radio" 
+                                name="invoiceType" 
+                                checked={invoiceState.invoiceType === 'hourly'}
+                                onChange={() => setInvoiceState(prev => ({ ...prev, invoiceType: 'hourly', showTimeColumns: true }))}
+                                className="text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <span className="text-sm font-medium text-slate-700">Hourly Rate</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                type="radio" 
+                                name="invoiceType" 
+                                checked={invoiceState.invoiceType === 'flat'}
+                                onChange={() => setInvoiceState(prev => ({ ...prev, invoiceType: 'flat', showTimeColumns: false }))}
+                                className="text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <span className="text-sm font-medium text-slate-700">Flat Amount</span>
+                            </label>
+                            </div>
+
+                            {invoiceState.invoiceType === 'hourly' ? (
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Hourly Rate</label>
+                                <div className="relative">
+                                <span className="absolute left-3 top-2 text-gray-500">$</span>
+                                <input 
+                                    type="number" 
+                                    name="hourlyRate"
+                                    value={invoiceState.hourlyRate}
+                                    onChange={handleInputChange}
+                                    className="w-full pl-6 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition"
+                                />
+                                </div>
+                            </div>
+                            ) : (
+                            <div>
+                                <label className="block text-xs font-medium text-slate-500 mb-1">Total Flat Amount</label>
+                                <div className="relative">
+                                <span className="absolute left-3 top-2 text-gray-500">$</span>
+                                <input 
+                                    type="number" 
+                                    name="flatAmount"
+                                    value={invoiceState.flatAmount}
+                                    onChange={handleInputChange}
+                                    className="w-full pl-6 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition"
+                                />
+                                </div>
+                            </div>
+                            )}
+                        </div>
+                    </div>
+                    </div>
+                </div>
+
+                {/* 3. Paste Logs */}
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                    <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                    <Icons.Clipboard className="w-5 h-5 text-amber-500" /> Paste Time Logs Here
+                    </h2>
+                    <textarea 
+                    rows={6} 
+                    value={logInput}
+                    onChange={(e) => setLogInput(e.target.value)}
+                    placeholder={`2024-01-15\tWebsite Updates\tFixed bug\t9:00 AM\t12:30 PM\t3:30:00`}
+                    className="w-full px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 transition font-mono text-sm"
+                    />
+                    <div className="flex gap-3 mt-4">
+                    <button 
+                        onClick={() => { onParseLogs(logInput); }}
+                        className="px-6 py-2.5 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg transition font-medium shadow-md flex items-center gap-2"
+                    >
+                        <Icons.Check size={16} /> Parse Logs
+                    </button>
+                    <button 
+                        onClick={() => { setLogInput(""); setItems([]); showToast("Cleared all data", "info"); }}
+                        className="px-6 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg transition font-medium flex items-center gap-2"
+                    >
+                        <Icons.Trash2 size={16} /> Clear
+                    </button>
+                    </div>
+                </div>
+
+                {/* 4. Line Items */}
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                    <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+                    <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                        <Icons.Layout className="w-5 h-5 text-yellow-400" /> Line Items
+                    </h2>
+                    <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none">
+                        <input 
+                            type="checkbox"
+                            checked={invoiceState.showTimeColumns}
+                            onChange={(e) => setInvoiceState(prev => ({ ...prev, showTimeColumns: e.target.checked }))}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                        />
+                        Show Time/Hrs Columns
+                        </label>
+                        <button 
+                        onClick={addLineItem}
+                        className="px-4 py-2 bg-yellow-100 hover:bg-yellow-200 text-yellow-800 rounded-lg transition font-medium text-sm flex items-center gap-1"
+                        >
+                        <Icons.Plus size={16} /> Add Custom Row
+                        </button>
+                    </div>
+                    </div>
+                    
+                    <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead>
+                        <tr className="bg-slate-100">
+                            <th className="px-3 py-2 text-left font-semibold text-slate-700 rounded-tl-lg">Date</th>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-700">Task</th>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-700">Desc</th>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-700">Start</th>
+                            <th className="px-3 py-2 text-left font-semibold text-slate-700">End</th>
+                            <th className="px-3 py-2 text-right font-semibold text-slate-700">Hours</th>
+                            <th className="px-3 py-2 text-center font-semibold text-slate-700 rounded-tr-lg">X</th>
+                        </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                        {items.map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-50 transition">
+                            <td className="px-2 py-2 w-32">
+                                <input 
+                                value={item.date} 
+                                onChange={(e) => updateLineItem(item.id, 'date', e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500"
+                                />
+                            </td>
+                            <td className="px-2 py-2">
+                                <input 
+                                value={item.project} 
+                                onChange={(e) => updateLineItem(item.id, 'project', e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500"
+                                />
+                            </td>
+                            <td className="px-2 py-2">
+                                <input 
+                                value={item.description} 
+                                onChange={(e) => updateLineItem(item.id, 'description', e.target.value)}
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500"
+                                />
+                            </td>
+                            <td className="px-2 py-2 w-20">
+                                <input 
+                                value={item.startTime} 
+                                onChange={(e) => updateLineItem(item.id, 'startTime', e.target.value)}
+                                className={`w-full px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500 ${!invoiceState.showTimeColumns && 'bg-gray-100 text-gray-400'}`}
+                                disabled={!invoiceState.showTimeColumns}
+                                />
+                            </td>
+                            <td className="px-2 py-2 w-20">
+                                <input 
+                                value={item.endTime} 
+                                onChange={(e) => updateLineItem(item.id, 'endTime', e.target.value)}
+                                className={`w-full px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500 ${!invoiceState.showTimeColumns && 'bg-gray-100 text-gray-400'}`}
+                                disabled={!invoiceState.showTimeColumns}
+                                />
+                            </td>
+                            <td className="px-2 py-2 w-20">
+                                <input 
+                                defaultValue={minutesToHMM(item.minutes)}
+                                onBlur={(e) => updateLineItem(item.id, 'minutes', toMinutes(e.target.value))}
+                                key={item.id}
+                                className={`w-full px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500 text-right ${!invoiceState.showTimeColumns && 'bg-gray-100 text-gray-400'}`}
+                                disabled={!invoiceState.showTimeColumns}
+                                />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                                <button onClick={() => removeLineItem(item.id)} className="text-red-500 hover:text-red-700 p-1">
+                                <Icons.Trash2 size={16} />
+                                </button>
+                            </td>
+                            </tr>
+                        ))}
+                        </tbody>
+                    </table>
+                    </div>
+                    <div className="mt-4 p-4 bg-yellow-50 rounded-xl flex justify-between items-center">
+                    <span className="font-medium text-slate-700">Total Time Logged:</span>
+                    <span className="font-bold text-yellow-600 text-lg">{minutesToPretty(totalMinutes)}</span>
+                    </div>
+                </div>
+
+                {/* 5. Payment Methods & Notes */}
+                <div className="bg-white rounded-2xl shadow-lg p-6">
+                    <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                        <Icons.CreditCard className="w-5 h-5 text-emerald-600" /> Payment & Notes
+                    </h2>
+                    <button 
+                        onClick={addPaymentMethod}
+                        className="px-4 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg transition font-medium text-sm flex items-center gap-1"
+                    >
+                        <Icons.Plus size={16} /> Add Method
+                    </button>
+                    </div>
+                    
+                    <div className="space-y-3 mb-6">
+                    {invoiceState.paymentMethods.map((method) => (
+                        <div key={method.id} className="flex flex-col md:flex-row items-start md:items-center gap-3 p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition">
+                        <input 
+                            type="text" 
+                            placeholder="Method Name (e.g. Wise)" 
+                            value={method.name}
+                            onChange={(e) => updatePaymentMethod(method.id, 'name', e.target.value)}
+                            className="flex-1 px-3 py-2 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500 w-full"
+                        />
+                        <input 
+                            type="text" 
+                            placeholder="Payment Link" 
+                            value={method.link}
+                            onChange={(e) => updatePaymentMethod(method.id, 'link', e.target.value)}
+                            className="flex-[2] px-3 py-2 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-emerald-500 w-full"
+                        />
+                        <button 
+                            onClick={() => removePaymentMethod(method.id)}
+                            className="px-3 py-2 text-red-500 hover:text-red-700 transition font-medium text-sm"
+                        >
+                            Remove
+                        </button>
+                        </div>
+                    ))}
+                    {invoiceState.paymentMethods.length === 0 && (
+                        <p className="text-center text-slate-400 text-sm italic py-2">No payment methods added.</p>
+                    )}
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-2">Invoice Footer Note</label>
+                        <textarea 
+                        name="invoiceNote"
+                        value={invoiceState.invoiceNote}
+                        onChange={handleInputChange}
+                        rows={2}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 transition text-sm"
+                        />
+                    </div>
+                </div>
+
+                {/* 6. Buttons */}
+                <div className="flex flex-col sm:flex-row gap-4 pb-4">
+                    <button 
+                    onClick={() => {
+                        const filename = getExportFilename('pdf');
+                        showToast("Generating PDF...", "info");
+                        setTimeout(() => downloadPDF('invoice-preview', filename), 100);
+                    }} 
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-yellow-400 to-yellow-500 hover:from-yellow-500 hover:to-yellow-600 text-black rounded-xl transition font-semibold shadow-lg hover:shadow-xl flex justify-center items-center gap-2"
+                    >
+                    <Icons.Printer size={20} /> Download PDF
+                    </button>
+                    <button 
+                    onClick={() => {
+                        const filename = getExportFilename('png');
+                        showToast("Generating PNG...", "info");
+                        setTimeout(() => downloadPNG('invoice-preview', filename), 100);
+                    }}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-xl transition font-semibold shadow-lg hover:shadow-xl flex justify-center items-center gap-2"
+                    >
+                    <Icons.Download size={20} /> Download PNG
+                    </button>
+                </div>
+
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [items, setItems] = useState([]);
+            const [invoiceState, setInvoiceState] = useState({
+                invoiceNumber: getDefaultInvoiceNumber(),
+                invoiceDate: getToday(),
+                billingStart: '',
+                billingEnd: '',
+                currency: 'USD',
+                paymentMethods: [DEFAULT_PAYMENT_METHOD],
+                clientName: DEFAULT_CLIENT_NAME,
+                companyName: DEFAULT_COMPANY_NAME,
+                payeeName: DEFAULT_PAYEE_NAME,
+                hourlyRate: DEFAULT_HOURLY_RATE,
+                invoiceNote: DEFAULT_NOTE,
+                invoiceType: 'hourly',
+                flatAmount: 1500,
+                showTimeColumns: true
+            });
+            const [toasts, setToasts] = useState([]);
+
+            const showToast = (message, type) => {
+                const id = Date.now();
+                setToasts(prev => [...prev, { id, message, type }]);
+                setTimeout(() => {
+                setToasts(prev => prev.filter(t => t.id !== id));
+                }, 3000);
+            };
+
+            const handleParseLogs = (logs) => {
+                const parsed = parseTimeLogs(logs);
+                if (parsed.length > 0) {
+                setItems(parsed);
+                
+                const { start, end } = getBillingPeriod(parsed);
+                setInvoiceState(prev => ({
+                    ...prev,
+                    billingStart: start,
+                    billingEnd: end
+                }));
+                showToast(`Parsed ${parsed.length} items successfully`, 'success');
+                } else {
+                showToast("No valid rows found. Check format.", "error");
+                }
+            };
+
+            const handleRecomputeDates = () => {
+                const { start, end } = getBillingPeriod(items);
+                if (start && end) {
+                setInvoiceState(prev => ({
+                    ...prev,
+                    billingStart: start,
+                    billingEnd: end
+                }));
+                showToast("Billing period updated", "success");
+                } else {
+                showToast("No valid dates in line items", "info");
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-100 font-sans pb-20">
+                
+                {/* Toast Container */}
+                <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 no-print">
+                    {toasts.map(toast => (
+                    <div 
+                        key={toast.id}
+                        className={`px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium animate-[slideIn_0.3s_ease-out] ${
+                        toast.type === 'success' ? 'bg-emerald-600' : 
+                        toast.type === 'error' ? 'bg-red-600' : 'bg-slate-700'
+                        }`}
+                    >
+                        {toast.message}
+                    </div>
+                    ))}
+                </div>
+
+                <div className="max-w-6xl mx-auto px-4 py-8">
+                    
+                    {/* Header */}
+                    <header className="text-center mb-8 no-print">
+                    <h1 className="text-4xl font-bold text-black">FREELANCE INVOICE MAKER</h1>
+                    <p className="text-gray-600 mt-2">Generate professional invoices from your time logs</p>
+                    </header>
+
+                    {/* Editor Section */}
+                    <div className="no-print mb-8">
+                    <InvoiceEditor 
+                        invoiceState={invoiceState}
+                        setInvoiceState={setInvoiceState}
+                        items={items}
+                        setItems={setItems}
+                        onParseLogs={handleParseLogs}
+                        onRecomputeDates={handleRecomputeDates}
+                        showToast={showToast}
+                    />
+                    </div>
+
+                    {/* Preview Section */}
+                    <div className="mb-8">
+                    <InvoicePreview 
+                        items={items}
+                        invoiceState={invoiceState}
+                    />
+                    </div>
+
+                </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
